@@ -1,5 +1,5 @@
 import { Repository } from "typeorm";
-import { Sale, NFT, Listing, Collection, CollectionMetrics } from '../models/entities.js';
+import { Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory } from '../models/entities.js';
 import { dataSource } from "../config/database.js";
 
 
@@ -9,6 +9,9 @@ export class DatabaseService {
   private listingRepo!: Repository<Listing>;
   private saleRepo!: Repository<Sale>;
   private metricsRepo!: Repository<CollectionMetrics>;
+  private currentBidRepo!: Repository<CurrentBid>;
+  private bidHistoryRepo!: Repository<BidHistory>;
+
   async initialize() {
     try {
       try {
@@ -22,6 +25,8 @@ export class DatabaseService {
       this.listingRepo = dataSource.getRepository(Listing);
       this.saleRepo = dataSource.getRepository(Sale);
       this.metricsRepo = dataSource.getRepository(CollectionMetrics);
+      this.currentBidRepo = dataSource.getRepository(CurrentBid);
+      this.bidHistoryRepo = dataSource.getRepository(BidHistory);
 
       console.log("Database connection established");
     } catch (error) {
@@ -214,6 +219,18 @@ export class DatabaseService {
     return !!sale;
   }
 
+  async clearCurrentBids(collectionId: string): Promise<void> {
+    await this.currentBidRepo.delete({ collection: { collection_id: collectionId } });
+  }
+
+  async insertCurrentBid(bidRecord: Partial<CurrentBid>): Promise<void> {
+    await this.currentBidRepo.save(bidRecord);
+  }
+
+  async insertBidHistory(bidRecord: Partial<BidHistory>): Promise<void> {
+    await this.bidHistoryRepo.save(bidRecord);
+  }
+  
   // async updateNFTOwner(nftId: string, newOwnerAddress: string): Promise<void> {
   //   await this.nftRepo.update(nftId, { owner_address: newOwnerAddress });
   // }

@@ -11,7 +11,7 @@ export class Collection {
 
   @Column()
   contract_address!: string;
-  
+
   @Column("decimal", { precision: 10, scale: 6, nullable: true })
   current_floor_price!: number;
 
@@ -20,6 +20,12 @@ export class Collection {
 
   @OneToMany("NFT", "collection")
   nfts: any[];
+
+  @OneToMany("CurrentBid", "collection")
+  currentBids: any[];
+
+  @OneToMany("BidHistory", "collection")
+  bidHistories: any[];
 
   @OneToMany("CollectionMetrics", "collection")
   metrics: any[];

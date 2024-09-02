@@ -1,3 +1,4 @@
+import { BidService } from "./BidService.js";
 import { DatabaseService } from "./DatabaseService.js";
 import { EventProcessingService } from "./EventProcessingService.js";
 import { FloorPriceService } from "./FloorUpdateService.js";
@@ -5,6 +6,7 @@ import { FloorPriceService } from "./FloorUpdateService.js";
 class MarketUpdateService {
     constructor(
         private floorPriceService: FloorPriceService,
+        private bidOfferService: BidService,
         private eventProcessingService: EventProcessingService,
         private dbService: DatabaseService
     ) { }
@@ -12,9 +14,9 @@ class MarketUpdateService {
     async updateMarketData() {
         const collections = await this.dbService.getAllCollections();
         for (const collection of collections) {
-            await this.floorPriceService.updateFloorPrices(collection);
             await this.eventProcessingService.processEvents(collection);
-            process.exit(1)
+            await this.floorPriceService.updateFloorPrices(collection);
+            await this.bidOfferService.updateCollectionBids(collection);
         }
     }
 }
