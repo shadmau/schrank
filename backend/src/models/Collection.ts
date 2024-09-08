@@ -12,6 +12,9 @@ export class Collection {
   @Column()
   contract_address!: string;
 
+  @Column({ nullable: true })
+  image_url?: string;
+
   @Column("decimal", { precision: 10, scale: 6, nullable: true })
   current_floor_price!: number;
 

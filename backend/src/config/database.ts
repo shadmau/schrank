@@ -13,14 +13,14 @@ requiredEnvVars.forEach(envVar => {
 });
 
 const dataSourceOptions: DataSourceOptions = {
-  type: "mariadb",  
+  type: "mariadb",
   host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT || "3306"),  
+  port: parseInt(process.env.DB_PORT || "3306"),
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   entities: [Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory],
-  synchronize: process.env.NODE_ENV !== 'production', 
+  synchronize: false,
   logging: true,
   logger: 'advanced-console'
 };

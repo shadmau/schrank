@@ -9,10 +9,10 @@ export async function GET() {
     }
 
     try {
-        const response = await axios.get(`${backendUrl}/api/collections`);
+        const response = await axios.get(`${backendUrl}/api/collections/floor-price-history`);
         return NextResponse.json(response.data);
     } catch (error) {
-        console.error('Error fetching collections:', error);
-        return NextResponse.json({ error: 'Error fetching collections' }, { status: 500 });
+        console.error('Error fetching floor price history:', error);
+        return NextResponse.json({ error: 'Error fetching floor price history' }, { status: 500 });
     }
 }

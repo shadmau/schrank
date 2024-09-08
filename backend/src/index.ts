@@ -7,16 +7,13 @@ import { MarketUpdateService } from "./services/MarketUpdateService.js";
 import { BidService } from "./services/BidService.js";
 import { sleep } from "./utils/utils.js";
 import { Collection } from "./models/Collection.js";
-import express from 'express';
-import cors from 'cors';
-
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 10000; // 10 seconds
 const delayBetweenUpdates = 5000; // 5 seconds
 
 let puppeteerService = new PuppeteerService();
-const dbService = new DatabaseService();
+const dbService = DatabaseService.getInstance();
 let isUpdatingMarket = false;
 
 async function initializeServices() {
@@ -95,17 +92,3 @@ process.on('SIGINT', async () => {
   await puppeteerService.close();
   process.exit(0);
 });
-
-const app = express();
-app.use(cors());
-
-app.get('/api/collections', async (req, res) => {
-  try {
-    const collections = await dbService.getAllCollections();
-    res.json(collections);
-  } catch (error) {
-    res.status(500).json({ error: 'Error fetching collections' });
-  }
-});
-
-app.listen(5000, () => console.log('API server running on port 5000'));

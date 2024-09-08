@@ -88,28 +88,23 @@ export class EventProcessingService {
                 const listingUpdateDate = new Date(activeListing.last_updated_at);
 
                 if (eventDate > listingUpdateDate) {
-                    // Update the listing
                     await this.dbService.updateListing(activeListing.listing_id, {
                         status: 'SOLD',
                         last_updated_at: new Date(event.createdAt)
                     });
-
                     console.log(`Updated listing ${activeListing.listing_id} for NFT ${nftId} due to sale event`);
                 } else {
                     return;
                 }
-
             } else {
                 console.log(`No active listing found for NFT ${nftId}`);
-                return;
             }
 
             const side = event.makerSide?.toUpperCase() === 'ASK' ? 'ASK' : 'BID';
 
-
             await this.dbService.createSale({
                 nft: nft,
-                listing: activeListing,
+                listing: activeListing || null, // Use the active listing if it exists, otherwise null
                 buyer_address: event.toTrader?.address || '',
                 seller_address: event.fromTrader.address,
                 price: event.price.amount,
@@ -173,10 +168,17 @@ export class EventProcessingService {
 
 
     private async fetchEvents(contractAddress: string) {
-        const filters = { count: 100, contractAddress: contractAddress };
+        const filters = {
+            count: 100,
+            contractAddress: contractAddress,
+            eventFilter: {
+                sale: {},
+                transfer: {}
+            }
+        };
 
         const url = `https://core-api.prod.blur.io/v1/activity/event-filter?filters=${encodeURIComponent(JSON.stringify(filters))}`;
-
+        
         try {
             const content = await this.puppeteerService.fetchJSON(url);
             if (content.success && Array.isArray(content.activityItems)) {
@@ -188,7 +190,7 @@ export class EventProcessingService {
                 throw new Error('Unexpected response format');
             }
         } catch (error) {
-            console.error('Error fetching collections:', error);
+            console.error('Error fetching events:', error);
             throw error;
         }
     }

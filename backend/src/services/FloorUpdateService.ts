@@ -23,17 +23,34 @@ export class FloorPriceService {
     ) { }
 
     async updateFloorPrices(collection: Collection) {
-
-        const floorData = await this.fetchFloorData(collection.contract_address, 20); //todo: margin from config
-        // Store current floor price in collection table
+        const floorData = await this.fetchFloorData(collection.contract_address, 20);
         await this.dbService.updateCollectionCurrentFloorPrice(collection.collection_id, floorData.floorPrice);
 
-        // Store floor price history and depth in collectionMetrics table
+        // Get the current best bid
+        const bestBid = await this.dbService.getCurrentBestBid(collection.collection_id);
+
+        const currentTimestamp = new Date();
+        let bestBidAge = null;
+        let bestBidWarning = null;
+
+        if (bestBid) {
+            bestBidAge = (currentTimestamp.getTime() - bestBid.last_updated.getTime()) / 60000; // Age in minutes
+            if (bestBidAge > 5) { // Warning if bid is older than 5 minutes
+                bestBidWarning = `Best bid is ${bestBidAge.toFixed(2)} minutes old`;
+                console.warn(`Collection ${collection.collection_id}: ${bestBidWarning}`);
+            }
+        } else {
+            console.warn(`Collection ${collection.collection_id}: No best bid found`);
+        }
+
+        // Store floor price history, depth, and best bid in collectionMetrics table
         const metrics: Partial<CollectionMetrics> = {
             collection: collection,
-            timestamp: new Date(),
+            timestamp: currentTimestamp,
             floor_price: floorData.floorPrice,
-            floor_depth: floorData.floorListings.length
+            floor_depth: floorData.floorListings.length,
+            best_bid_price: bestBid ? bestBid.price : 0,
+            best_bid_depth: bestBid ? bestBid.executable_size : 0,
         };
         await this.dbService.storeFloorPriceMetrics(metrics);
 
@@ -52,18 +69,14 @@ export class FloorPriceService {
             };
             await this.dbService.upsertListing(listingData);
 
-
             // Get all token IDs from floor listings
             const floorTokenIds = floorData.floorListings.map(token => token.tokenId);
 
             await this.dbService.updateNonFloorListings(collection.collection_id, floorTokenIds);
 
             await sleep(500)
-
         }
-
     }
-
 
     private async fetchFloorData(contractAddress: string, floorMarginBPS: number): Promise<{ floorPrice: number, floorListings: TokenData[] }> {
         const url = `https://core-api.prod.blur.io/v1/collections/${contractAddress}/tokens?filters=${encodeURIComponent(JSON.stringify({ traits: [], hasAsks: true }))}`;
@@ -73,7 +86,6 @@ export class FloorPriceService {
             throw new Error(`Failed to fetch floor data for collection ${contractAddress}`);
         }
 
-
         const floorPrice = parseFloat(data.tokens[0].price.amount);
         const maxFloorPrice = floorPrice * (1 + floorMarginBPS / 10000);
 
@@ -82,8 +94,6 @@ export class FloorPriceService {
         );
         console.log(`Contract Address: ${contractAddress}, Max floor: ${maxFloorPrice}`);
 
-
         return { floorPrice, floorListings };
     }
-
 }

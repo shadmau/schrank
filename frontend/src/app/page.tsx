@@ -1,10 +1,11 @@
 "use client";
 
-
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react';
+import { Collection } from './utils/mockData';
 import { motion, AnimatePresence } from 'framer-motion'
-import { TrendingUp, TrendingDown, DollarSign, BarChart2, ArrowRightLeft, Users, Search, Filter, ChevronDown, ChevronUp, ListPlus, Zap } from 'lucide-react'
-import { LineChart, Line, ResponsiveContainer } from 'recharts'
+import { TrendingUp, TrendingDown, DollarSign, BarChart2, ArrowRightLeft, Users, Search, Filter, ChevronDown, ChevronUp, Zap } from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { format } from 'date-fns';
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -18,13 +19,14 @@ import {  Pagination,
   PaginationLink,
   PaginationNext,
   PaginationPrevious, } from "@/components/ui/pagination"
-import { mockCollections, Collection } from './utils/mockData'
 
 type TimeRange = '24h' | '7d' | '30d'
 type FilterOption = 'all' | 'topFloorPrice' | 'topBidDepth' | 'topFloorBuys'
 type ViewMode = 'card' | 'table'
 
 export default function NFTTradingDashboard() {
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h')
   const [filterOption, setFilterOption] = useState<FilterOption>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -33,8 +35,56 @@ export default function NFTTradingDashboard() {
 
   const itemsPerPage = viewMode === 'card' ? 12 : 20
 
+  useEffect(() => {
+    const fetchCollections = async () => {
+      try {
+        const [collectionsResponse, historyResponse] = await Promise.all([
+          fetch('/api/collections'),
+          fetch('/api/collections/floor-price-history')
+        ]);
+
+        if (!collectionsResponse.ok || !historyResponse.ok) {
+          throw new Error('Failed to fetch data');
+        }
+
+        const collectionsData = await collectionsResponse.json();
+        const historyData = await historyResponse.json();
+
+        setCollections(collectionsData.map((item: any) => {
+          const currentBidPrice = item.bestBid ? parseFloat(item.bestBid.price) : 0;
+          const currentFloorPrice = parseFloat(item.current_floor_price);
+          const bidPriceChange = item.bidPrice24HoursAgo ? (currentBidPrice - item.bidPrice24HoursAgo) / item.bidPrice24HoursAgo : 0;
+          return {
+            id: item.collection_id,
+            name: item.name,
+            floorPrice: currentFloorPrice,
+            floorPriceChange: 0, // This will be calculated in the CardView component
+            bidPrice: currentBidPrice,
+            bidPriceChange: bidPriceChange,
+            floorSales24h: item.floorAskTaken || 0,
+            floorBidSpread: currentBidPrice ? currentFloorPrice - currentBidPrice : 0,
+            bidToFloorRatio: currentBidPrice ? currentBidPrice / currentFloorPrice : 0,
+            bidDepth: item.bestBid ? item.bestBid.executable_size : 0,
+            floorAskTaken: item.floorAskTaken || 0,
+            floorAskAvgPrice24h: item.floorAskAvgPrice24h || '0',
+            bidSales24h: item.bidSales24h || 0,
+            bidSalesAvgPrice24h: item.bidSalesAvgPrice24h || '0',
+            priceHistory: historyData[item.collection_id] || []
+          };
+        }));
+
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setIsLoading(false);
+      }
+    };
+
+    fetchCollections();
+  }, []);
+
   const filteredCollections = useMemo(() => {
-    let filtered = [...mockCollections]
+    let filtered = [...collections]
 
     if (searchQuery) {
       filtered = filtered.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -48,12 +98,12 @@ export default function NFTTradingDashboard() {
         filtered = filtered.sort((a, b) => b.bidDepth - a.bidDepth).slice(0, 20)
         break
       case 'topFloorBuys':
-        filtered = filtered.sort((a, b) => b.floorBuys - a.floorBuys).slice(0, 20)
+        filtered = filtered.sort((a, b) => b.floorSales24h - a.floorSales24h).slice(0, 20)
         break
     }
 
     return filtered
-  }, [filterOption, searchQuery])
+  }, [filterOption, searchQuery, collections])
 
   const paginatedCollections = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
@@ -62,89 +112,160 @@ export default function NFTTradingDashboard() {
 
   const totalPages = Math.ceil(filteredCollections.length / itemsPerPage)
 
-const CardView = ({ collection }: { collection: Collection }) => (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -20 }}
-      transition={{ duration: 0.3 }}
-      className="bg-gray-800 rounded-lg p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
-    >
-      <h2 className="text-xl font-semibold mb-4">{collection.name}</h2>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
+  const CardView = ({ collection }: { collection: Collection }) => {
+    const calculateFloorPriceChange = () => {
+      if (collection.priceHistory.length < 2) return 0;
+      const sortedHistory = [...collection.priceHistory].sort((a, b) => a.timestamp - b.timestamp);
+      const oldestPrice = sortedHistory[0].floorPrice;
+      const currentPrice = collection.floorPrice;
+      return (currentPrice - oldestPrice) / oldestPrice;
+    };
+
+    const floorPriceChange = calculateFloorPriceChange();
+
+    return (
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ duration: 0.3 }}
+        className="bg-gray-800 rounded-lg p-6 shadow-lg hover:shadow-xl transition-shadow duration-300"
+      >
+        <h2 className="text-xl font-semibold mb-4">{collection.name}</h2>
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div>
+            <div className="flex items-center mb-2">
+              <DollarSign className="mr-2 text-blue-400" size={20} />
+              <span className="text-sm text-gray-400">Floor Price</span>
+            </div>
+            <div className="flex items-baseline">
+              <span className="text-2xl font-bold mr-1">{collection.floorPrice.toFixed(2)}</span>
+              <span className="text-lg">ETH</span>
+            </div>
+            <div className={`text-sm ${floorPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {floorPriceChange >= 0 ? (
+                <TrendingUp size={16} className="inline mr-1" />
+              ) : (
+                <TrendingDown size={16} className="inline mr-1" />
+              )}
+              {(floorPriceChange * 100).toFixed(2)}%
+            </div>
+          </div>
+          <div>
+            <div className="flex items-center mb-2">
+              <BarChart2 className="mr-2 text-purple-400" size={20} />
+              <span className="text-sm text-gray-400">Bid Price</span>
+            </div>
+            <div className="flex items-baseline">
+              <span className="text-2xl font-bold mr-1">{collection.bidPrice.toFixed(2)}</span>
+              <span className="text-lg">ETH</span>
+            </div>
+            <div className={`text-sm ${collection.bidPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {collection.bidPriceChange >= 0 ? (
+                <TrendingUp size={16} className="inline mr-1" />
+              ) : (
+                <TrendingDown size={16} className="inline mr-1" />
+              )}
+              {Math.abs(collection.bidPriceChange * 100).toFixed(2)}%
+            </div>
+          </div>
+          <div className="flex flex-col justify-between h-24">
+            <div>
+              <div className="flex items-center mb-2">
+                <ArrowRightLeft className="mr-2 text-yellow-400 flex-shrink-0" size={20} />
+                <span className="text-sm text-gray-400">Floor-Bid Spread</span>
+              </div>
+              <div className={`text-2xl font-bold ${collection.floorBidSpread <= 0.3 ? 'text-green-500' : collection.floorBidSpread >= 0.7 ? 'text-red-500' : 'text-yellow-500'}`}>
+                {((1 - collection.bidToFloorRatio) * 100).toFixed(1)}%
+              </div>
+            </div>
+            <div className="text-sm text-gray-400">
+              {collection.floorBidSpread.toFixed(2)} ETH
+            </div>
+          </div>
+          <div className="flex flex-col justify-between h-24">
+            <div>
+              <div className="flex items-center mb-2">
+                <Users className="mr-2 text-green-400 flex-shrink-0" size={20} />
+                <span className="text-sm text-gray-400">Collection Bid Depth</span>
+              </div>
+              <div className="text-2xl font-bold">{collection.bidDepth}</div>
+            </div>
+            <div className="text-sm text-gray-400">
+              {(collection.bidDepth * collection.bidPrice).toFixed(2)} ETH
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col justify-between h-24">
+            <div>
+              <div className="flex items-center mb-2">
+                <Zap className="mr-2 text-yellow-400" size={20} />
+                <span className="text-sm text-gray-400">Floor Sales</span>
+              </div>
+              <div className="text-xl font-bold">{collection.floorAskTaken}</div>
+              <div className="text-sm text-gray-400">
+                Avg {parseFloat(collection.floorAskAvgPrice24h).toFixed(4)} ETH
+              </div>
+            </div>
+          </div>
+          {collection.bidSales24h !== undefined && (
+            <div className="flex flex-col justify-between h-24">
+              <div>
+                <div className="flex items-center mb-2">
+                  <Zap className="mr-2 text-purple-400" size={20} />
+                  <span className="text-sm text-gray-400">Bid Sales</span>
+                </div>
+                <div className="text-xl font-bold">{collection.bidSales24h}</div>
+                <div className="text-sm text-gray-400">
+                  Avg {parseFloat(collection.bidSalesAvgPrice24h).toFixed(4)} ETH
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="mt-4">
           <div className="flex items-center mb-2">
-            <DollarSign className="mr-2 text-blue-400" size={20} />
-            <span className="text-sm text-gray-400">Floor Price</span>
+            <Zap className="mr-2 text-blue-400" size={20} />
+            <span className="text-sm text-gray-400">Floor Price Trend</span>
           </div>
-          <div className="flex items-baseline">
-            <span className="text-2xl font-bold mr-1">{collection.floorPrice.toFixed(2)}</span>
-            <span className="text-lg">ETH</span>
-          </div>
-          <div className={`text-sm ${collection.floorPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-            {collection.floorPriceChange >= 0 ? <TrendingUp size={16} className="inline mr-1" /> : <TrendingDown size={16} className="inline mr-1" />}
-            {Math.abs(collection.floorPriceChange).toFixed(2)}%
-          </div>
+          {collection.priceHistory.length > 0 ? (
+            <ResponsiveContainer width="100%" height={200}>
+              <LineChart data={collection.priceHistory}>
+                <XAxis 
+                  dataKey="timestamp" 
+                  tickFormatter={(timestamp) => format(new Date(timestamp), 'HH:mm')}
+                  interval="preserveStartEnd"
+                  minTickGap={50}
+                />
+                <YAxis 
+                  dataKey="floorPrice"
+                  tickFormatter={(value) => value.toFixed(3)}
+                  domain={['auto', 'auto']}
+                />
+                <Tooltip
+                  labelFormatter={(timestamp) => format(new Date(timestamp), 'MMM dd, HH:mm')}
+                  formatter={(value: number) => [value.toFixed(4) + ' ETH', 'Floor Price']}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="floorPrice" 
+                  stroke="#3b82f6" 
+                  strokeWidth={2} 
+                  dot={false} 
+                  activeDot={{ r: 8 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-sm text-gray-400">No floor price data available</div>
+          )}
         </div>
-        <div>
-          <div className="flex items-center mb-2">
-            <BarChart2 className="mr-2 text-purple-400" size={20} />
-            <span className="text-sm text-gray-400">Bid Price</span>
-          </div>
-          <div className="flex items-baseline">
-            <span className="text-2xl font-bold mr-1">{collection.bidPrice.toFixed(2)}</span>
-            <span className="text-lg">ETH</span>
-          </div>
-          <div className={`text-sm ${collection.bidPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-            {collection.bidPriceChange >= 0 ? <TrendingUp size={16} className="inline mr-1" /> : <TrendingDown size={16} className="inline mr-1" />}
-            {Math.abs(collection.bidPriceChange).toFixed(2)}%
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center mb-2">
-            <ArrowRightLeft className="mr-2 text-yellow-400 flex-shrink-0" size={20} />
-            <span className="text-sm text-gray-400">Floor-Bid Spread</span>
-          </div>
-          <div className={`text-2xl font-bold mb-1 ${collection.floorBidSpread <= 0.3 ? 'text-green-500' : collection.floorBidSpread >= 0.7 ? 'text-red-500' : 'text-yellow-500'}`}>
-            {(collection.bidToFloorRatio * 100).toFixed(1)}%
-          </div>
-          <div className="text-sm text-gray-400">
-            {collection.floorBidSpread.toFixed(2)} ETH
-          </div>
-        </div>
-        <div>
-          <div className="flex items-center mb-2">
-            <Users className="mr-2 text-green-400 flex-shrink-0" size={20} />
-            <span className="text-sm text-gray-400">Collection Bid Depth</span>
-          </div>
-          <div className="text-2xl font-bold mb-1">{collection.bidDepth.toFixed(1)}</div>
-          <div className="text-sm text-gray-400">
-            {(collection.bidDepth * collection.bidPrice).toFixed(2)} ETH
-          </div>
-        </div>
-      </div>
-      <div className="mt-4">
-        <div className="flex items-center mb-2">
-          <ListPlus className="mr-2 text-blue-400" size={20} />
-          <span className="text-sm text-gray-400">Listing Velocity</span>
-        </div>
-        <div className="text-xl font-bold">{collection.listingVelocity} / day</div>
-      </div>
-      <div className="mt-4">
-        <div className="flex items-center mb-2">
-          <Zap className="mr-2 text-blue-400" size={20} />
-          <span className="text-sm text-gray-400">Price Trend</span>
-        </div>
-        <ResponsiveContainer width="100%" height={60}>
-          <LineChart data={collection.priceHistory.map((price, index) => ({ price, index }))}>
-            <Line type="monotone" dataKey="price" stroke="#3b82f6" strokeWidth={2} dot={false} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-      <Button className="w-full mt-4 bg-blue-600 hover:bg-blue-700">View Details</Button>
-    </motion.div>
-  )
+        <Button className="w-full mt-4 bg-blue-600 hover:bg-blue-700">View Details</Button>
+      </motion.div>
+    )
+  }
 
   const TableView = () => (
     <Table>
@@ -153,10 +274,10 @@ const CardView = ({ collection }: { collection: Collection }) => (
           <TableHead>Collection</TableHead>
           <TableHead>Floor Price</TableHead>
           <TableHead>Bid Price</TableHead>
-          <TableHead>Floor-Bid Spread</TableHead>
-          <TableHead>Bid/Floor Ratio</TableHead>
-          <TableHead>Bid Depth</TableHead>
-          <TableHead>Listing Velocity</TableHead>
+          <TableHead>Floor-Bid Spread (Ratio)</TableHead>
+          <TableHead>Floor Sales (24h)</TableHead>
+          <TableHead>Bid Sales (24h)</TableHead>
+          <TableHead>Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -167,22 +288,34 @@ const CardView = ({ collection }: { collection: Collection }) => (
               <div>{collection.floorPrice.toFixed(2)} ETH</div>
               <div className={`text-sm ${collection.floorPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
                 {collection.floorPriceChange >= 0 ? <TrendingUp size={12} className="inline mr-1" /> : <TrendingDown size={12} className="inline mr-1" />}
-                {Math.abs(collection.floorPriceChange).toFixed(2)}%
+                {Math.abs(collection.floorPriceChange * 100).toFixed(2)}%
               </div>
             </TableCell>
             <TableCell>
               <div>{collection.bidPrice.toFixed(2)} ETH</div>
               <div className={`text-sm ${collection.bidPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {collection.bidPriceChange >= 0 ? <TrendingUp size={12} className="inline mr-1" /> : <TrendingDown size={12} className="inline mr-1" />}
-                {Math.abs(collection.bidPriceChange).toFixed(2)}%
+                {collection.bidPriceChange >= 0 ? (
+                  <TrendingUp size={12} className="inline mr-1" />
+                ) : (
+                  <TrendingDown size={12} className="inline mr-1" />
+                )}
+                {Math.abs(collection.bidPriceChange * 100).toFixed(2)}%
               </div>
             </TableCell>
-            <TableCell className={`${collection.floorBidSpread <= 0.3 ? 'text-green-500' : collection.floorBidSpread >= 0.7 ? 'text-red-500' : 'text-yellow-500'}`}>
-              {collection.floorBidSpread.toFixed(2)} ETH
+            <TableCell>
+              {((1 - collection.bidToFloorRatio) * 100).toFixed(1)}% ({collection.floorBidSpread.toFixed(2)} ETH)
             </TableCell>
-            <TableCell>{(collection.bidToFloorRatio * 100).toFixed(1)}%</TableCell>
-            <TableCell>{collection.bidDepth.toFixed(1)}</TableCell>
-            <TableCell>{collection.listingVelocity} / day</TableCell>
+            <TableCell>
+              {collection.floorSales24h} ({parseFloat(collection.floorAskAvgPrice24h).toFixed(4)} ETH)
+            </TableCell>
+            <TableCell>
+              {collection.bidSales24h} ({parseFloat(collection.bidSalesAvgPrice24h).toFixed(4)} ETH)
+            </TableCell>
+            <TableCell>
+              <Button variant="outline" size="sm">
+                Details
+              </Button>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -196,13 +329,13 @@ const CardView = ({ collection }: { collection: Collection }) => (
       <div className="flex flex-wrap gap-4 mb-6">
         <Select onValueChange={(value) => setFilterOption(value as FilterOption)}>
           <SelectTrigger className="w-[180px] bg-gray-800 border-gray-700">
-            <SelectValue placeholder="Filter collections" />
+            <SelectValue placeholder="Sort By" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Collections</SelectItem>
-            <SelectItem value="topFloorPrice">Top 20 by Floor Price</SelectItem>
-            <SelectItem value="topBidDepth">Top 20 by Bid Depth</SelectItem>
-            <SelectItem value="topFloorBuys">Top 20 by Floor Buys</SelectItem>
+            <SelectItem value="topFloorPrice">Floor Price</SelectItem>
+            <SelectItem value="topBidDepth">Bid Depth</SelectItem>
+            <SelectItem value="topFloorBuys">Floor Buys</SelectItem>
           </SelectContent>
         </Select>
         

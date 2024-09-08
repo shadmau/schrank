@@ -1,6 +1,7 @@
 import { DatabaseService } from './DatabaseService.js';
 import { PuppeteerService } from './PuppeteerService.js';
 import { Collection } from '../models/entities.js';
+import { whitelistedAddresses } from '../whitelist.js';
 
 interface CollectionData {
   contractAddress: string;
@@ -41,12 +42,24 @@ export class CollectionCrawlerService {
   public async crawlCollections() {
     try {
       const { collections, totalCount } = await this.fetchCollections();
+      const whitelistedSet = new Set(whitelistedAddresses.map(address => address.toLowerCase()));
+      const filteredCollections = collections.filter(c =>
+        whitelistedSet.has(c.contractAddress.toLowerCase())
+      );
 
-      const formattedCollections: Partial<Collection>[] = collections.slice(0, 100).map(c => ({
+      const formattedCollections: Partial<Collection>[] = filteredCollections.map(c => ({
         collection_id: c.contractAddress,
         name: c.name,
         contract_address: c.contractAddress,
+        image_url: c.imageUrl
+
       }));
+
+      // const formattedCollections: Partial<Collection>[] = collections.slice(0, 100).map(c => ({
+      //   collection_id: c.contractAddress,
+      //   name: c.name,
+      //   contract_address: c.contractAddress,
+      // }));
 
       await this.dbService.storeCollections(formattedCollections);
 
