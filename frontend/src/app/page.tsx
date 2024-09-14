@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Collection } from './utils/mockData';
 import { motion, AnimatePresence } from 'framer-motion'
 import { TrendingUp, TrendingDown, DollarSign, BarChart2, ArrowRightLeft, Users, Search, Filter, ChevronDown, ChevronUp, Zap } from 'lucide-react'
@@ -12,13 +12,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import {  Pagination,
+import {
+  Pagination,
   PaginationContent,
   PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
-  PaginationPrevious, } from "@/components/ui/pagination"
+  PaginationPrevious,
+} from "@/components/ui/pagination"
 
 type TimeRange = '24h' | '7d' | '30d'
 type FilterOption = 'all' | 'topFloorPrice' | 'topBidDepth' | 'topFloorBuys'
@@ -28,7 +30,8 @@ export default function NFTTradingDashboard() {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h')
-  const [filterOption, setFilterOption] = useState<FilterOption>('all')
+  const [filterOption, setFilterOption] = useState<FilterOption | null>(null);
+  const [displayedFilterOption, setDisplayedFilterOption] = useState<string>("Sort by");
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('card')
   const [currentPage, setCurrentPage] = useState(1)
@@ -38,9 +41,10 @@ export default function NFTTradingDashboard() {
   useEffect(() => {
     const fetchCollections = async () => {
       try {
+        const timestamp = new Date().getTime();
         const [collectionsResponse, historyResponse] = await Promise.all([
-          fetch('/api/collections'),
-          fetch('/api/collections/floor-price-history')
+          fetch(`/api/collections?t=${timestamp}`),
+          fetch(`/api/collections/floor-price-history?t=${timestamp}`)
         ]);
 
         if (!collectionsResponse.ok || !historyResponse.ok) {
@@ -83,6 +87,18 @@ export default function NFTTradingDashboard() {
     fetchCollections();
   }, []);
 
+  useEffect(() => {
+    // Set initial sorting to floor price without changing the displayed text
+    setFilterOption('topFloorPrice');
+  }, []);
+
+  const handleFilterChange = (value: string) => {
+    setFilterOption(value as FilterOption);
+    setDisplayedFilterOption(value === 'topFloorPrice' ? 'Floor Price' :
+      value === 'topBidDepth' ? 'Bid Depth' :
+        value === 'topFloorBuys' ? 'Floor Buys' : 'All Collections');
+  };
+
   const filteredCollections = useMemo(() => {
     let filtered = [...collections]
 
@@ -90,9 +106,13 @@ export default function NFTTradingDashboard() {
       filtered = filtered.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
     }
 
+    // Always sort by floor price initially
+    filtered = filtered.sort((a, b) => b.floorPrice - a.floorPrice)
+
     switch (filterOption) {
       case 'topFloorPrice':
-        filtered = filtered.sort((a, b) => b.floorPrice - a.floorPrice).slice(0, 20)
+      case null: 
+        filtered = filtered.slice(0, 20)
         break
       case 'topBidDepth':
         filtered = filtered.sort((a, b) => b.bidDepth - a.bidDepth).slice(0, 20)
@@ -167,6 +187,7 @@ export default function NFTTradingDashboard() {
               ) : (
                 <TrendingDown size={16} className="inline mr-1" />
               )}
+              {collection.bidPriceChange < 0 && '-'}
               {Math.abs(collection.bidPriceChange * 100).toFixed(2)}%
             </div>
           </div>
@@ -176,7 +197,10 @@ export default function NFTTradingDashboard() {
                 <ArrowRightLeft className="mr-2 text-yellow-400 flex-shrink-0" size={20} />
                 <span className="text-sm text-gray-400">Floor-Bid Spread</span>
               </div>
-              <div className={`text-2xl font-bold ${collection.floorBidSpread <= 0.3 ? 'text-green-500' : collection.floorBidSpread >= 0.7 ? 'text-red-500' : 'text-yellow-500'}`}>
+              <div className={`text-2xl font-bold ${((1 - collection.bidToFloorRatio) * 100) <= 2 ? 'text-green-500' :
+                  ((1 - collection.bidToFloorRatio) * 100) <= 5 ? 'text-yellow-500' :
+                    'text-red-500'
+                }`}>
                 {((1 - collection.bidToFloorRatio) * 100).toFixed(1)}%
               </div>
             </div>
@@ -202,7 +226,7 @@ export default function NFTTradingDashboard() {
             <div>
               <div className="flex items-center mb-2">
                 <Zap className="mr-2 text-yellow-400" size={20} />
-                <span className="text-sm text-gray-400">Floor Sales</span>
+                <span className="text-sm text-gray-400 whitespace-nowrap">Floor Sales (avg)</span>
               </div>
               <div className="text-xl font-bold">{collection.floorAskTaken}</div>
               <div className="text-sm text-gray-400">
@@ -215,7 +239,7 @@ export default function NFTTradingDashboard() {
               <div>
                 <div className="flex items-center mb-2">
                   <Zap className="mr-2 text-purple-400" size={20} />
-                  <span className="text-sm text-gray-400">Bid Sales</span>
+                  <span className="text-sm text-gray-400 whitespace-nowrap">Bid Sales (avg)</span>
                 </div>
                 <div className="text-xl font-bold">{collection.bidSales24h}</div>
                 <div className="text-sm text-gray-400">
@@ -233,13 +257,13 @@ export default function NFTTradingDashboard() {
           {collection.priceHistory.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={collection.priceHistory}>
-                <XAxis 
-                  dataKey="timestamp" 
+                <XAxis
+                  dataKey="timestamp"
                   tickFormatter={(timestamp) => format(new Date(timestamp), 'HH:mm')}
                   interval="preserveStartEnd"
                   minTickGap={50}
                 />
-                <YAxis 
+                <YAxis
                   dataKey="floorPrice"
                   tickFormatter={(value) => value.toFixed(3)}
                   domain={['auto', 'auto']}
@@ -248,12 +272,12 @@ export default function NFTTradingDashboard() {
                   labelFormatter={(timestamp) => format(new Date(timestamp), 'MMM dd, HH:mm')}
                   formatter={(value: number) => [value.toFixed(4) + ' ETH', 'Floor Price']}
                 />
-                <Line 
-                  type="monotone" 
-                  dataKey="floorPrice" 
-                  stroke="#3b82f6" 
-                  strokeWidth={2} 
-                  dot={false} 
+                <Line
+                  type="monotone"
+                  dataKey="floorPrice"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dot={false}
                   activeDot={{ r: 8 }}
                 />
               </LineChart>
@@ -267,93 +291,125 @@ export default function NFTTradingDashboard() {
     )
   }
 
-  const TableView = () => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Collection</TableHead>
-          <TableHead>Floor Price</TableHead>
-          <TableHead>Bid Price</TableHead>
-          <TableHead>Floor-Bid Spread (Ratio)</TableHead>
-          <TableHead>Floor Sales (24h)</TableHead>
-          <TableHead>Bid Sales (24h)</TableHead>
-          <TableHead>Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {paginatedCollections.map((collection) => (
-          <TableRow key={collection.id}>
-            <TableCell className="font-medium">{collection.name}</TableCell>
-            <TableCell>
-              <div>{collection.floorPrice.toFixed(2)} ETH</div>
-              <div className={`text-sm ${collection.floorPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {collection.floorPriceChange >= 0 ? <TrendingUp size={12} className="inline mr-1" /> : <TrendingDown size={12} className="inline mr-1" />}
-                {Math.abs(collection.floorPriceChange * 100).toFixed(2)}%
-              </div>
-            </TableCell>
-            <TableCell>
-              <div>{collection.bidPrice.toFixed(2)} ETH</div>
-              <div className={`text-sm ${collection.bidPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {collection.bidPriceChange >= 0 ? (
-                  <TrendingUp size={12} className="inline mr-1" />
-                ) : (
-                  <TrendingDown size={12} className="inline mr-1" />
-                )}
-                {Math.abs(collection.bidPriceChange * 100).toFixed(2)}%
-              </div>
-            </TableCell>
-            <TableCell>
-              {((1 - collection.bidToFloorRatio) * 100).toFixed(1)}% ({collection.floorBidSpread.toFixed(2)} ETH)
-            </TableCell>
-            <TableCell>
-              {collection.floorSales24h} ({parseFloat(collection.floorAskAvgPrice24h).toFixed(4)} ETH)
-            </TableCell>
-            <TableCell>
-              {collection.bidSales24h} ({parseFloat(collection.bidSalesAvgPrice24h).toFixed(4)} ETH)
-            </TableCell>
-            <TableCell>
-              <Button variant="outline" size="sm">
-                Details
-              </Button>
-            </TableCell>
+  const TableView = () => {
+    const calculateFloorPriceChange = (collection: Collection) => {
+      if (collection.priceHistory.length < 2) return 0;
+      const sortedHistory = [...collection.priceHistory].sort((a, b) => a.timestamp - b.timestamp);
+      const oldestPrice = sortedHistory[0].floorPrice;
+      const currentPrice = collection.floorPrice;
+      return (currentPrice - oldestPrice) / oldestPrice;
+    };
+
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Collection</TableHead>
+            <TableHead>Floor Price</TableHead>
+            <TableHead>Bid Price</TableHead>
+            <TableHead>Floor-Bid Spread</TableHead>
+            <TableHead>Floor Sales</TableHead>
+            <TableHead>Bid Sales</TableHead>
+            <TableHead>Actions</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
+        </TableHeader>
+        <TableBody>
+          {paginatedCollections.map((collection) => {
+            const floorPriceChange = calculateFloorPriceChange(collection);
+            return (
+              <TableRow key={collection.id}>
+                <TableCell className="font-medium">{collection.name}</TableCell>
+                <TableCell>
+                  <div>{collection.floorPrice.toFixed(2)} ETH</div>
+                  <div className={`text-sm ${floorPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {floorPriceChange >= 0 ? <TrendingUp size={12} className="inline mr-1" /> : <TrendingDown size={12} className="inline mr-1" />}
+                    {floorPriceChange < 0 && '-'}
+                    {Math.abs(floorPriceChange * 100).toFixed(2)}%
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div>{collection.bidPrice.toFixed(2)} ETH</div>
+                  <div className={`text-sm ${collection.bidPriceChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {collection.bidPriceChange >= 0 ? (
+                      <TrendingUp size={12} className="inline mr-1" />
+                    ) : (
+                      <TrendingDown size={12} className="inline mr-1" />
+                    )}
+                    {collection.bidPriceChange < 0 && '-'}
+                    {Math.abs(collection.bidPriceChange * 100).toFixed(2)}%
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {((1 - collection.bidToFloorRatio) * 100).toFixed(1)}% ({collection.floorBidSpread.toFixed(2)} ETH)
+                </TableCell>
+                <TableCell>
+                  {collection.floorSales24h} ({parseFloat(collection.floorAskAvgPrice24h).toFixed(4)} ETH)
+                </TableCell>
+                <TableCell>
+                  {collection.bidSales24h} ({parseFloat(collection.bidSalesAvgPrice24h).toFixed(4)} ETH)
+                </TableCell>
+                <TableCell>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-gray-800 text-blue-400 border-blue-400 hover:bg-blue-400 hover:text-gray-900 transition-colors duration-200"
+                  >
+                    Details
+                  </Button>
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  const TimeRangeButton = ({ range }: { range: TimeRange }) => {
+    const isDisabled = range !== '24h';
+
+    return (
+      <div className="relative inline-block">
+        <Badge
+          variant={timeRange === range ? "default" : "secondary"}
+          className={`cursor-pointer rounded-full px-3 py-1 ${timeRange === range ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
+            } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+          onClick={() => !isDisabled && setTimeRange(range)}
+        >
+          {range}
+        </Badge>
+        {isDisabled && (
+          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            Not enough data
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 p-8">
       <h1 className="text-3xl font-bold mb-6 bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent">Schrank Dashboard</h1>
-      
+
       <div className="flex flex-wrap gap-4 mb-6">
-        <Select onValueChange={(value) => setFilterOption(value as FilterOption)}>
+        <Select onValueChange={handleFilterChange} value={filterOption || undefined}>
           <SelectTrigger className="w-[180px] bg-gray-800 border-gray-700">
-            <SelectValue placeholder="Sort By" />
+            <SelectValue>{displayedFilterOption}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Collections</SelectItem>
+            {/* <SelectItem value="all">All Collections</SelectItem> */}
             <SelectItem value="topFloorPrice">Floor Price</SelectItem>
             <SelectItem value="topBidDepth">Bid Depth</SelectItem>
             <SelectItem value="topFloorBuys">Floor Buys</SelectItem>
           </SelectContent>
         </Select>
-        
+
         <div className="flex space-x-2">
           {(['24h', '7d', '30d'] as const).map((range) => (
-            <Badge
-              key={range}
-              variant={timeRange === range ? "default" : "secondary"}
-              className={`cursor-pointer rounded-full px-3 py-1 ${
-                timeRange === range ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
-              }`}
-              onClick={() => setTimeRange(range)}
-            >
-              {range}
-            </Badge>
+            <TimeRangeButton key={range} range={range} />
           ))}
         </div>
-        
+
         <div className="flex-grow">
           <div className="relative">
             <Search className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
@@ -398,12 +454,12 @@ export default function NFTTradingDashboard() {
       </AnimatePresence>
 
       <div className="mt-6 flex justify-center">
-      <Pagination>
+        <Pagination>
           <PaginationContent>
             <PaginationItem>
-              <PaginationPrevious 
+              <PaginationPrevious
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                // disabled={currentPage === 1}
+              // disabled={currentPage === 1}
               />
             </PaginationItem>
             <PaginationItem>
@@ -413,9 +469,9 @@ export default function NFTTradingDashboard() {
               <PaginationEllipsis />
             </PaginationItem>
             <PaginationItem>
-              <PaginationNext 
+              <PaginationNext
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                // disabled={currentPage === totalPages}
+              // disabled={currentPage === totalPages}
               />
             </PaginationItem>
           </PaginationContent>
