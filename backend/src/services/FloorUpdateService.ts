@@ -17,11 +17,25 @@ interface TokenData {
 }
 
 export class FloorPriceService {
-    constructor(
-        private dbService: DatabaseService,
-        private puppeteerService: PuppeteerService
-    ) { }
+    private static instance: FloorPriceService;
+    private dbService: DatabaseService;
+    private puppeteerService: PuppeteerService;
 
+     private constructor(dbService: DatabaseService, puppeteerService: PuppeteerService) {
+        this.dbService = dbService;
+        this.puppeteerService = puppeteerService;
+    }
+
+    public static getInstance(dbService?: DatabaseService, puppeteerService?: PuppeteerService): FloorPriceService {
+        if (!FloorPriceService.instance) {
+            if (!dbService || !puppeteerService) {
+                throw new Error("DatabaseService and PuppeteerService must be provided for initialization.");
+            }
+            FloorPriceService.instance = new FloorPriceService(dbService, puppeteerService);
+        }
+        return FloorPriceService.instance;
+    }
+    
     async updateFloorPrices(collection: Collection) {
         const floorData = await this.fetchFloorData(collection.contract_address, 20);
         await this.dbService.updateCollectionCurrentFloorPrice(collection.collection_id, floorData.floorPrice);
@@ -80,7 +94,7 @@ export class FloorPriceService {
 
     private async fetchFloorData(contractAddress: string, floorMarginBPS: number): Promise<{ floorPrice: number, floorListings: TokenData[] }> {
         const url = `https://core-api.prod.blur.io/v1/collections/${contractAddress}/tokens?filters=${encodeURIComponent(JSON.stringify({ traits: [], hasAsks: true }))}`;
-        const data = await this.puppeteerService.fetchJSON(url);
+        const data = await this.puppeteerService.fetchWithRetry(url, { method: 'GET' });
 
         if (!data.success || !data.tokens || data.tokens.length === 0) {
             throw new Error(`Failed to fetch floor data for collection ${contractAddress}`);

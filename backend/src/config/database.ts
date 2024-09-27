@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import { DataSource, DataSourceOptions } from 'typeorm';
-import { Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory } from '../models/entities.js';
+import { Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory, UserBid } from '../models/entities.js';
 
 dotenv.config();
 
@@ -19,9 +19,9 @@ const dataSourceOptions: DataSourceOptions = {
   username: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  entities: [Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory],
+  entities: [Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory, UserBid],
   synchronize: false,
-  logging: true,
+  logging: false,
   logger: 'advanced-console'
 };
 

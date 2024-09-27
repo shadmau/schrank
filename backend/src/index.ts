@@ -12,14 +12,14 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 10000; // 10 seconds
 const delayBetweenUpdates = 5000; // 5 seconds
 
-let puppeteerService = new PuppeteerService();
+let puppeteerService = PuppeteerService.getInstance();
 const dbService = DatabaseService.getInstance();
 let isUpdatingMarket = false;
 
 async function initializeServices() {
   console.log('Initializing Services...');
   await dbService.initialize();
-  await puppeteerService.initialize();
+  // await puppeteerService.initialize();
   console.log('Services initialized successfully');
 }
 
@@ -56,8 +56,8 @@ async function main() {
   let retryCount = 0;
   while (retryCount < MAX_RETRIES) {
     try {
-      const eventProcessingService = new EventProcessingService(dbService, puppeteerService);
-      const floorPriceService = new FloorPriceService(dbService, puppeteerService);
+      const eventProcessingService = new EventProcessingService(dbService, puppeteerService)
+      const floorPriceService = FloorPriceService.getInstance(dbService, puppeteerService);
       const bidOfferService = new BidService(dbService, puppeteerService);
       const marketUpdateService = new MarketUpdateService(floorPriceService, bidOfferService, eventProcessingService, dbService);
 
@@ -75,8 +75,8 @@ async function main() {
         console.log(`Restarting in ${RETRY_DELAY / 1000} seconds...`);
         await sleep(RETRY_DELAY);
         await puppeteerService.close();
-        puppeteerService = new PuppeteerService();
-        await puppeteerService.initialize();
+        puppeteerService = PuppeteerService.getInstance();
+        // await puppeteerService.initialize();
       } else {
         console.error('Max retries reached. Exiting...');
         process.exit(1);

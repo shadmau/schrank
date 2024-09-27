@@ -32,4 +32,7 @@ export class Collection {
 
   @OneToMany("CollectionMetrics", "collection")
   metrics: any[];
+  
+  @OneToMany("UserBid", "collection")
+  userBids: any[];
 }

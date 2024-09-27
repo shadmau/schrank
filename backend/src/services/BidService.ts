@@ -23,7 +23,7 @@ export class BidService {
         const url = `https://core-api.prod.blur.io/v1/collections/${contractAddress}/executable-bids?filters={"criteria":{"type":"COLLECTION","value":{}}}`;
 
         try {
-            const content = await this.puppeteerService.fetchJSON(url);
+            const content = await this.puppeteerService.fetchWithRetry(url, { method: 'GET' });
             const bids = content.priceLevels.filter((bid: BidData) => bid.criteriaType === 'COLLECTION'); // only collection bids for now
             if (content.success && Array.isArray(content.priceLevels)) {
                 return {

@@ -5,3 +5,4 @@ export * from './Sale.js';
 export * from './BidHistory.js';
 export * from './CurrentBid.js';
 export * from './CollectionMetrics.js';
+export * from './UserBid.js';

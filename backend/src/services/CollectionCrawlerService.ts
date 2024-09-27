@@ -22,7 +22,7 @@ export class CollectionCrawlerService {
     const url = `https://core-api.prod.blur.io/v1/collections?filters=${encodeURIComponent(JSON.stringify(filters))}`;
 
     try {
-      const content = await this.puppeteerService.fetchJSON(url);
+      const content = await this.puppeteerService.fetchWithRetry(url, { method: 'GET' });
 
       if (content.success && Array.isArray(content.collections)) {
         return {

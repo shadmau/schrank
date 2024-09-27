@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { DatabaseService } from "./services/DatabaseService.js";
+import { validatePriceDataParams } from "./utils/validators.js";
 
 dotenv.config();
 
@@ -50,6 +51,29 @@ async function startServer() {
     } catch (error) {
       console.error('Error fetching floor price history:', error);
       res.status(500).json({ error: 'Error fetching floor price history' });
+    }
+  });
+
+  app.get('/api/price-data', async (req, res) => {
+    try {
+      const { collectionAddress, timeframe, from, to } = req.query;
+      console.log(collectionAddress, timeframe, from, to);
+      const validation = validatePriceDataParams(collectionAddress, timeframe, from, to);
+      if (!validation.isValid) {
+        return res.status(400).json({ error: validation.message });
+      }
+
+      const priceData = await dbService.getPriceData(
+        collectionAddress as string,
+        timeframe as string,
+        parseInt(from as string),
+        parseInt(to as string)
+      );
+
+      res.json(priceData);
+    } catch (error) {
+      console.error('Error fetching price data:', error);
+      res.status(500).json({ error: 'Error fetching price data' });
     }
   });
 
