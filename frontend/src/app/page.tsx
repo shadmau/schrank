@@ -112,13 +112,13 @@ export default function NFTTradingDashboard() {
     switch (filterOption) {
       case 'topFloorPrice':
       case null: 
-        filtered = filtered.slice(0, 20)
+        filtered = filtered //.slice(0, 20)
         break
       case 'topBidDepth':
-        filtered = filtered.sort((a, b) => b.bidDepth - a.bidDepth).slice(0, 20)
+        filtered = filtered.sort((a, b) => b.bidDepth - a.bidDepth)//.slice(0, 20)
         break
       case 'topFloorBuys':
-        filtered = filtered.sort((a, b) => b.floorSales24h - a.floorSales24h).slice(0, 20)
+        filtered = filtered.sort((a, b) => b.floorSales24h - a.floorSales24h)//.slice(0, 20)
         break
     }
 
