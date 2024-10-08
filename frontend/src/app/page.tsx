@@ -35,25 +35,22 @@ export default function NFTTradingDashboard() {
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('card')
   const [currentPage, setCurrentPage] = useState(1)
+  const [isCollectionsLoaded, setIsCollectionsLoaded] = useState(false);
 
   const itemsPerPage = viewMode === 'card' ? 12 : 20
 
+  // Fetch collections only once when the component mounts
   useEffect(() => {
     const fetchCollections = async () => {
       try {
         const timestamp = new Date().getTime();
-        const [collectionsResponse, historyResponse] = await Promise.all([
-          fetch(`/api/collections?t=${timestamp}`),
-          fetch(`/api/collections/floor-price-history?t=${timestamp}`)
-        ]);
-
-        if (!collectionsResponse.ok || !historyResponse.ok) {
-          throw new Error('Failed to fetch data');
+        const collectionsResponse = await fetch(`/api/collections?t=${timestamp}`);
+        
+        if (!collectionsResponse.ok) {
+          throw new Error('Failed to fetch collections');
         }
 
         const collectionsData = await collectionsResponse.json();
-        const historyData = await historyResponse.json();
-
         setCollections(collectionsData.map((item: any) => {
           const currentBidPrice = item.bestBid ? parseFloat(item.bestBid.price) : 0;
           const currentFloorPrice = parseFloat(item.current_floor_price);
@@ -62,7 +59,7 @@ export default function NFTTradingDashboard() {
             id: item.collection_id,
             name: item.name,
             floorPrice: currentFloorPrice,
-            floorPriceChange: 0, // This will be calculated in the CardView component
+            floorPriceChange: 0, // Will be calculated in the CardView component
             bidPrice: currentBidPrice,
             bidPriceChange: bidPriceChange,
             floorSales24h: item.floorAskTaken || 0,
@@ -73,13 +70,14 @@ export default function NFTTradingDashboard() {
             floorAskAvgPrice24h: item.floorAskAvgPrice24h || '0',
             bidSales24h: item.bidSales24h || 0,
             bidSalesAvgPrice24h: item.bidSalesAvgPrice24h || '0',
-            priceHistory: historyData[item.collection_id] || []
+            priceHistory: []
           };
         }));
 
         setIsLoading(false);
+        setIsCollectionsLoaded(true);
       } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('Error fetching collections:', error);
         setIsLoading(false);
       }
     };
@@ -88,7 +86,34 @@ export default function NFTTradingDashboard() {
   }, []);
 
   useEffect(() => {
-    // Set initial sorting to floor price without changing the displayed text
+    if (!isCollectionsLoaded) return; // Only fetch if collections are loaded
+
+    const fetchFloorPriceHistory = async () => {
+      try {
+        const timestamp = new Date().getTime();
+        const historyResponse = await fetch(`/api/collections/floor-price-history?t=${timestamp}&range=${timeRange}`);
+
+        if (!historyResponse.ok) {
+          throw new Error('Failed to fetch floor price history');
+        }
+
+        const historyData = await historyResponse.json();
+
+        setCollections(prevCollections => 
+          prevCollections.map(collection => ({
+            ...collection,
+            priceHistory: historyData[collection.id] || [] // Update price history for each collection
+          }))
+        );
+      } catch (error) {
+        console.error('Error fetching floor price history:', error);
+      }
+    };
+
+    fetchFloorPriceHistory();
+  }, [timeRange, isCollectionsLoaded]);
+
+  useEffect(() => {
     setFilterOption('topFloorPrice');
   }, []);
 
@@ -366,20 +391,20 @@ export default function NFTTradingDashboard() {
   };
 
   const TimeRangeButton = ({ range }: { range: TimeRange }) => {
-    const isDisabled = range !== '24h';
+    const isDisabled = range === '24h' && timeRange === '7d';
 
     return (
       <div className="relative inline-block">
-        <Badge
-          variant={timeRange === range ? "default" : "secondary"}
-          className={`cursor-pointer rounded-full px-3 py-1 ${timeRange === range ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
-            } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-          onClick={() => !isDisabled && setTimeRange(range)}
-        >
+         <Badge
+        variant={timeRange === range ? "default" : "secondary"}
+        className={`cursor-pointer rounded-full px-3 py-1 ${timeRange === range ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'
+          } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+        onClick={() => !isDisabled && setTimeRange(range)}
+      >
           {range}
         </Badge>
         {isDisabled && (
-          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
             Not enough data
           </div>
         )}
