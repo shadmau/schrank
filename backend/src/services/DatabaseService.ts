@@ -329,69 +329,89 @@ export class DatabaseService {
       bidAvgPrice: bidAvgPrice
     };
   }
-
-  async getAllCollectionsFloorPriceHistory() {
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  async getAllCollectionsFloorPriceHistory(range: '24h' | '7d' | '30d' = '24h') {
+    const now = new Date();
+    let fromDate: Date;
+    switch (range) {
+        case '7d':
+            fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            break;
+        case '30d':
+            fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            break;
+        default: // '24h'
+            fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    }
 
     const metrics = await this.metricsRepo.createQueryBuilder('metrics')
-      .innerJoinAndSelect('metrics.collection', 'collection')
-      .where('metrics.timestamp > :twentyFourHoursAgo', { twentyFourHoursAgo })
-      .orderBy('metrics.timestamp', 'ASC')
-      .getMany();
+        .innerJoinAndSelect('metrics.collection', 'collection')
+        .where('metrics.timestamp > :fromDate', { fromDate })
+        .orderBy('metrics.timestamp', 'ASC')
+        .getMany();
 
     const floorPriceHistory: Record<string, Record<number, { sum: number, count: number }>> = {};
-
     metrics.forEach(metric => {
-      const collectionId = metric.collection.collection_id;
-      const hourTimestamp = new Date(metric.timestamp).setMinutes(0, 0, 0);
-      const floorPrice = parseFloat(metric.floor_price.toString());
+        const collectionId = metric.collection.collection_id;
+        let timeGroup: number;
 
+        // Group by hour for '24h', otherwise by day for '7d' and '30d'
+        if (range === '24h') {
+            timeGroup = new Date(metric.timestamp).setMinutes(0, 0, 0); // Hourly
+        } else {
+            timeGroup = new Date(metric.timestamp).setHours(0, 0, 0, 0); // Daily
+        }
 
-      if (!floorPriceHistory[collectionId]) {
-        floorPriceHistory[collectionId] = {};
-      }
+        const floorPrice = parseFloat(metric.floor_price.toString());
 
-      if (!floorPriceHistory[collectionId][hourTimestamp]) {
-        floorPriceHistory[collectionId][hourTimestamp] = { sum: 0, count: 0 };
-      }
+        if (!floorPriceHistory[collectionId]) {
+            floorPriceHistory[collectionId] = {};
+        }
 
-      floorPriceHistory[collectionId][hourTimestamp].sum += floorPrice;
-      floorPriceHistory[collectionId][hourTimestamp].count += 1;
+        if (!floorPriceHistory[collectionId][timeGroup]) {
+            floorPriceHistory[collectionId][timeGroup] = { sum: 0, count: 0 };
+        }
+
+        floorPriceHistory[collectionId][timeGroup].sum += floorPrice;
+        floorPriceHistory[collectionId][timeGroup].count += 1;
     });
-
 
     // Calculate average and format the data
     const formattedHistory: Record<string, Array<{ timestamp: number, floorPrice: number }>> = {};
+    
+    Object.entries(floorPriceHistory).forEach(([collectionId, timeData]) => {
+        formattedHistory[collectionId] = Object.entries(timeData).map(([timestamp, data]) => ({
+            timestamp: parseInt(timestamp),
+            floorPrice: data.sum / data.count
+        }));
 
-    Object.entries(floorPriceHistory).forEach(([collectionId, hourlyData]) => {
-      formattedHistory[collectionId] = Object.entries(hourlyData).map(([timestamp, data]) => ({
-        timestamp: parseInt(timestamp),
-        floorPrice: data.sum / data.count
-      }));
+        // Ensure we have the required number of data points based on the range
+        const data = formattedHistory[collectionId];
+        const requiredPoints = range === '24h' ? 24 : (range === '7d' ? 7 : 30);
 
-      // Ensure we have 24 data points
-      const data = formattedHistory[collectionId];
-      if (data.length < 24) {
-        const firstTimestamp = data[0]?.timestamp || twentyFourHoursAgo.getTime();
-        const lastKnownPrice = data[data.length - 1]?.floorPrice || 0;
+        if (data.length < requiredPoints) {
+            const firstTimestamp = data[0]?.timestamp || fromDate.getTime();
+            const lastKnownPrice = data[data.length - 1]?.floorPrice || 0;
 
-        for (let i = 0; i < 24; i++) {
-          const timestamp = firstTimestamp + (i * 60 * 60 * 1000); // 1 hour intervals
-          if (!data.find(d => d.timestamp === timestamp)) {
-            data.push({ timestamp, floorPrice: lastKnownPrice });
-          }
+            for (let i = 0; i < requiredPoints; i++) {
+                const timestamp = range === '24h'
+                    ? firstTimestamp + (i * 60 * 60 * 1000) // Hourly intervals
+                    : firstTimestamp + (i * 24 * 60 * 60 * 1000); // Daily intervals
+
+                if (!data.find(d => d.timestamp === timestamp)) {
+                    data.push({ timestamp, floorPrice: lastKnownPrice });
+                }
+            }
+
+            // Sort after adding missing data points
+            data.sort((a, b) => a.timestamp - b.timestamp);
         }
 
-        // Sort after adding missing data points
-        data.sort((a, b) => a.timestamp - b.timestamp);
-      }
-
-      // Keep only the last 24 data points
-      formattedHistory[collectionId] = data.slice(-24);
+        // Keep only the required number of data points
+        formattedHistory[collectionId] = data.slice(-requiredPoints);
     });
 
     return formattedHistory;
-  }
+}
 
   async getBidPrice24HoursAgo(collectionId: string): Promise<number | null> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);

@@ -32,11 +32,11 @@ async function startServer() {
           bidPrice24HoursAgo: bidPrice24HoursAgo,
           floorAskTaken: salesData.askTaken,
           floorAskAvgPrice24h: salesData.askAvgPrice.toFixed(6),
-          bidSales24h:salesData.bidsTaken,
-          bidSalesAvgPrice24h:salesData.bidAvgPrice.toFixed(6)
+          bidSales24h: salesData.bidsTaken,
+          bidSalesAvgPrice24h: salesData.bidAvgPrice.toFixed(6)
         };
       }));
-      
+
       res.json(enrichedCollections);
     } catch (error) {
       console.error('Error fetching collections:', error);
@@ -46,7 +46,14 @@ async function startServer() {
 
   app.get('/api/collections/floor-price-history', async (req, res) => {
     try {
-      const history = await dbService.getAllCollectionsFloorPriceHistory();
+      const range = (req.query.range as string).toLowerCase();
+
+      const validRanges: Array<'24h' | '7d' | '30d'> = ['24h', '7d', '30d'];
+      if (!validRanges.includes(range as '24h' | '7d' | '30d')) {
+        return res.status(400).json({ error: 'Invalid range parameter. Must be one of: 24h, 7d, 30d.' });
+      }
+
+      const history = await dbService.getAllCollectionsFloorPriceHistory(range as '24h' | '7d' | '30d');
       res.json(history);
     } catch (error) {
       console.error('Error fetching floor price history:', error);
