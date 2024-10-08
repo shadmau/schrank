@@ -1,6 +1,7 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from "typeorm";
+import { Index, Entity, PrimaryGeneratedColumn, Column, ManyToOne } from "typeorm";
 
 @Entity()
+@Index("idx_collection_timestamp", ["collection", "timestamp"])
 export class CollectionMetrics {
   @PrimaryGeneratedColumn()
   metric_id!: number;

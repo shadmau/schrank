@@ -427,21 +427,28 @@ export class DatabaseService {
 
   async getBidPrices24HoursAgoForAllCollections(): Promise<Record<string, number | null>> {
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    const metrics = await this.metricsRepo.createQueryBuilder('metrics')
-      .innerJoinAndSelect('metrics.collection', 'collection')
+  
+    const result = await this.metricsRepo
+      .createQueryBuilder('metrics')
+      .select('metrics.collectionCollectionId', 'collectionId')
+      .addSelect('metrics.best_bid_price', 'bestBidPrice')
       .where('metrics.timestamp <= :twentyFourHoursAgo', { twentyFourHoursAgo })
-      .orderBy('metrics.timestamp', 'DESC')
-      .getMany();
-
-    const result: Record<string, number | null> = {};
-    for (const metric of metrics) {
-      if (!result[metric.collection.collection_id]) {
-        result[metric.collection.collection_id] = metric.best_bid_price;
-      }
-    }
-
-    return result;
+      .andWhere(qb => {
+        const subQuery = qb
+          .subQuery()
+          .select('MAX(m.timestamp)')
+          .from(CollectionMetrics, 'm')
+          .where('m.collectionCollectionId = metrics.collectionCollectionId')
+          .andWhere('m.timestamp <= :twentyFourHoursAgo')
+          .getQuery();
+        return 'metrics.timestamp = ' + subQuery;
+      })
+      .getRawMany();
+  
+    return result.reduce((acc, item) => {
+      acc[item.collectionId] = item.bestBidPrice;
+      return acc;
+    }, {} as Record<string, number | null>);
   }
 
   async getAllCollectionsBidPrices(): Promise<Record<string, { currentBidPrice: number, bidPrice24hAgo: number | null }>> {
