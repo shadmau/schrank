@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import { DatabaseService } from './DatabaseService';
 import { PuppeteerService, RequestOptions } from './PuppeteerService';
 import { UserBid } from '../models/UserBid';
+import { normalizePrice } from '../utils/utils.js';
+import logger from '../utils/logger.js';
 
 interface Challenge {
   message: string;
@@ -19,6 +21,13 @@ interface BidResult {
   bidId?: number;
   error?: string;
 }
+export interface BlurUserBid {
+  price: number;
+  contractAddress: string;
+  executableSize: number;
+  openSize: number;
+  collectionName?: string; // We'll try to fetch this if possible
+}
 
 
 class BidManagementService {
@@ -26,7 +35,7 @@ class BidManagementService {
   private wallet: ethers.Wallet;
   private accessToken: string | null = null;
   private BLUR_WALLET_LOGIN_ADDRESS: string | null = null;
-
+  private removingBids: boolean = false;
   constructor(
     private dbService: DatabaseService,
     private puppeteerService: PuppeteerService
@@ -42,7 +51,7 @@ class BidManagementService {
    * @param walletAddress 
    * @returns 
    */
-  private async getChallenge(walletAddress: string, useProxy: boolean = false): Promise<Challenge> {
+  private async getChallenge(walletAddress: string, useProxy: boolean = true): Promise<Challenge> {
     const url = 'https://core-api.prod.blur.io/auth/challenge';
     try {
       const response = await this.puppeteerService.fetchWithRetry(url, {
@@ -53,7 +62,7 @@ class BidManagementService {
       });
       return response as Challenge;
     } catch (error) {
-      console.error('Error getting challenge:', error);
+      logger.error('Error getting challenge:', error);
       throw error;
     }
   }
@@ -65,25 +74,25 @@ class BidManagementService {
    * Send the signature to the server to get an access token
    * @returns 
    */
-  public async login(useProxy: boolean = false): Promise<boolean> {
+  public async login(useProxy: boolean = true): Promise<boolean> {
     try {
       const walletAddress = await this.wallet.getAddress();
       this.BLUR_WALLET_LOGIN_ADDRESS = walletAddress;
-      console.log(`Logging in with wallet address: ${walletAddress}`);
+      logger.info(`Logging in with wallet address: ${walletAddress}`);
       const challenge: Challenge = await this.getChallenge(walletAddress, useProxy);
-      console.log(`Received challenge: ${challenge.message}`);
+      logger.debug(`Received challenge: ${challenge.message}`);
       const signature = await this.wallet.signMessage(challenge.message);
       const signInResult = await this.signIn(signature, challenge, useProxy);
       if (signInResult.ok && signInResult.accessToken) {
         this.accessToken = signInResult.accessToken;
-        console.log(`Login successful. Access token: ${this.accessToken} Wallet address: ${walletAddress}`);
+        logger.info(`Login successful. Access token: ${this.accessToken} Wallet address: ${walletAddress}`);
         return true;
       } else {
-        console.error("Sign in failed: No access token received");
+        logger.error("Sign in failed: No access token received");
         return false;
       }
     } catch (error) {
-      console.error("Login failed:", error);
+      logger.error("Login failed:", error);
       return false;
     }
   }
@@ -91,7 +100,7 @@ class BidManagementService {
   private async signIn(
     signature: string,
     challenge: Challenge,
-    useProxy: boolean = false
+    useProxy: boolean = true
   ): Promise<{ ok: boolean; accessToken: string | null }> {
     const url = 'https://core-api.prod.blur.io/auth/login';
 
@@ -112,6 +121,7 @@ class BidManagementService {
         useProxy: useProxy,
         setCookie: false, // We'll set cookies after successful login
       };
+
       const response = await this.puppeteerService.fetchWithRetry(url, options) as { accessToken?: string };
       if (response && response.accessToken) {
         return { ok: true, accessToken: response.accessToken };
@@ -119,7 +129,7 @@ class BidManagementService {
         throw new Error(`accessToken not found in response ${JSON.stringify(response)}`);
       }
     } catch (err) {
-      console.error("Couldn't login. Error:", err);
+      logger.error("Couldn't login. Error:", err);
       return { ok: false, accessToken: null };
     }
   }
@@ -130,7 +140,7 @@ class BidManagementService {
    * @param bidDetails - Details of the bid to be placed.
    * @returns The formatted bid data including signatures.
    */
-  private async formatBid(bidDetails: BidDetails, useProxy: boolean = false): Promise<any> {
+  private async formatBid(bidDetails: BidDetails, useProxy: boolean = true): Promise<any> {
     if (!this.accessToken || !this.BLUR_WALLET_LOGIN_ADDRESS) {
       throw new Error('Not authenticated. Please login first.');
     }
@@ -184,7 +194,7 @@ class BidManagementService {
         throw new Error(`Failed to format bid: ${msg}`);
       }
     } catch (error) {
-      console.error('Error formatting bid:', error);
+      logger.error('Error formatting bid:', error);
       throw error;
     }
   }
@@ -198,7 +208,7 @@ class BidManagementService {
   private async submitBid(
     signature: string,
     marketplaceData: string,
-    useProxy: boolean = false
+    useProxy: boolean = true
   ): Promise<any> {
     if (!this.accessToken || !this.BLUR_WALLET_LOGIN_ADDRESS) {
       throw new Error('Not authenticated. Please login first.');
@@ -241,7 +251,7 @@ class BidManagementService {
       if (error && error.message) {
         errorMessage = error.message.slice(0, 250);
       }
-      console.error('Error submitting bid:', errorMessage);
+      logger.error('Error submitting bid:', errorMessage);
       throw new Error(errorMessage);
     }
   }
@@ -251,7 +261,7 @@ class BidManagementService {
    * @param bidDetails - Details of the bid to be placed.
    * @returns The final result of the bid submission.
    */
-  public async postBid(bidDetails: BidDetails, useProxy: boolean = false): Promise<BidResult> {
+  public async postBid(bidDetails: BidDetails, useProxy: boolean = true): Promise<BidResult> {
     try {
       // Step 1: Format the bid
       const formattedBid = await this.formatBid(bidDetails);
@@ -302,7 +312,7 @@ class BidManagementService {
         };
       }
     } catch (error) {
-      console.error('Error posting bid:', error);
+      logger.error('Error posting bid:', error);
       return {
         success: false,
         status: 'FAILED',
@@ -342,7 +352,7 @@ class BidManagementService {
       );
       return signature;
     } catch (error) {
-      console.error('Error signing typed data:', error);
+      logger.error('Error signing typed data:', error);
       throw error;
     }
   }
@@ -353,7 +363,7 @@ class BidManagementService {
         throw new Error('Not authenticated. Please login first.');
       }
       const bidDetails: UserBid | null = await this.dbService.getUserBidById(bidId);
-      
+
       if (!bidDetails || bidDetails.status !== "ACTIVE") {
         throw new Error(`Bid ID ${bidId} not found or not active.`);
       }
@@ -397,7 +407,7 @@ class BidManagementService {
       const response = await this.puppeteerService.fetchWithRetry(url, options);
 
       if (response.success) {
-        console.info(`Bid ID ${bidId} canceled successfully. Collection: ${bidDetails.collection.name}, Bid Price: ${bidDetails.bidPrice} ETH`);
+        logger.info(`Bid ID ${bidId} canceled successfully. Collection: ${bidDetails.collection.name}, Bid Price: ${bidDetails.bidPrice} ETH`);
         await this.dbService.updateUserBidStatus(bidId, "CANCELED");
         return { success: true };
       } else {
@@ -405,6 +415,7 @@ class BidManagementService {
         if (response.error) {
           errorMsg = response.error.slice(0, 250);
         }
+        logger.error(`Bid ID ${bidId} cancellation failed. Error: ${errorMsg}`);
         return { success: false, error: errorMsg };
       }
     } catch (error: any) {
@@ -412,23 +423,131 @@ class BidManagementService {
       if (error && error.message) {
         errorMsg = error.message.slice(0, 250);
       }
-      console.error('Error canceling bid:', errorMsg);
+      logger.error('Error canceling bid:', errorMsg);
       return { success: false, error: errorMsg };
     }
   }
 
 
   /**
- * Retrieves all active user bids.
+ * Retrieves all active user bids from database.
  * @returns An array of active UserBid objects.
  */
   public async getAllActiveUserBids(): Promise<UserBid[]> {
     try {
       return await this.dbService.getActiveUserBids();
     } catch (error: any) {
-      console.error(`Error fetching active user bids: ${error.message}`);
+      logger.error(`Error fetching active user bids: ${error.message}`);
       throw error;
     }
+  }
+
+
+  public async removeInvalidBids(useProxy: boolean = true): Promise<void> {
+    if (this.removingBids) { logger.info(`Already removing bids.`); return; }
+    this.removingBids = true;
+    try {
+      const blurBids: BlurUserBid[] = await this.fetchUserBids(useProxy)
+      const allActiveUserBids: UserBid[] = await this.getAllActiveUserBids();
+
+      const bidsToCancel: number[] = [];
+
+      for (const activeBid of allActiveUserBids) {
+
+        const matchingBlurBid = blurBids.find(blurBid =>
+          blurBid.contractAddress.toLowerCase() === activeBid.collection.collection_id.toLowerCase() &&
+          normalizePrice(blurBid.price) === normalizePrice(activeBid.bidPrice)
+        );
+
+        if (!matchingBlurBid) {
+          bidsToCancel.push(activeBid.id)
+          logger.info(`Bid ${activeBid.id} marked for cancellation: No matching Blur bid found`);
+
+        }
+      }
+
+      for (const blurBid of blurBids) {
+        const blurOpenSize = blurBid.openSize;
+        let activeBidIds: number[] = []
+        for (const activeBid of allActiveUserBids) {
+          if (activeBid.collection.collection_id.toLowerCase() === blurBid.contractAddress.toLowerCase() && normalizePrice(blurBid.price) === normalizePrice(activeBid.bidPrice)) {
+            activeBidIds.push(activeBid.id)
+          }
+        }
+        let bidsToClose = activeBidIds.length - blurOpenSize
+        if (bidsToClose > 0) {
+          bidsToCancel.push(...activeBidIds.sort((a, b) => a - b).slice(0, bidsToClose));
+          logger.info(`Marked ${bidsToClose} bids for cancellation for collection ${blurBid.contractAddress} at price ${blurBid.price}`);
+
+        }
+      }
+      logger.info(`Total bids marked for cancellation: ${bidsToCancel}`);
+
+      for (const bidID of bidsToCancel) {
+        this.dbService.updateUserBidStatus(bidID, "COMPLETED");
+        logger.info(`Successfully marked bid ${bidID} as COMPLETED`);
+      }
+      this.removingBids = false;
+    } catch (err) {
+      logger.error(`Couldnt remove invalid bids. Error: ${err}`);
+      this.removingBids = false;
+    }
+
+
+  }
+
+  /**
+* Retrieves all active user bids from blur.
+* @returns An array of active UserBid objects.
+*/
+  public async fetchUserBids(useProxy: boolean = true): Promise<BlurUserBid[]> {
+    if (!this.accessToken || !this.BLUR_WALLET_LOGIN_ADDRESS) {
+      throw new Error('Not authenticated. Please login first.');
+    }
+    const url = "https://core-api.prod.blur.io/v1/collection-bids/user/" + this.BLUR_WALLET_LOGIN_ADDRESS.toLowerCase();
+
+    const options: RequestOptions = {
+      method: 'GET',
+      useProxy: useProxy,
+      setCookie: true,
+      cookies: [
+        {
+          name: 'authToken',
+          value: this.accessToken,
+          domain: '.prod.blur.io'
+        },
+        {
+          name: 'walletAddress',
+          value: this.BLUR_WALLET_LOGIN_ADDRESS!,
+          domain: '.prod.blur.io'
+        }
+      ]
+    };
+
+    try {
+
+      const response = await this.puppeteerService.fetchWithRetry(url, options);
+      if (response.success && Array.isArray(response.priceLevels)) {
+
+        return response.priceLevels.map((bid: any) => ({
+          price: parseFloat(bid.price),
+          contractAddress: bid.contractAddress,
+          executableSize: bid.executableSize,
+          openSize: bid.openSize,
+          collectionName: bid.collection?.name // Include collection name if available
+        }));
+
+
+      } else {
+        throw new Error(`Unexpected response. Response: ${response}`);
+
+      }
+
+    } catch (error) {
+      logger.error('Error fetching user bids:', error);
+      throw error;
+    }
+
   }
 
 
@@ -441,7 +560,7 @@ class BidManagementService {
     try {
       return await this.dbService.getUserBidById(bidId);
     } catch (error) {
-      console.error(`Error fetching UserBid ID ${bidId}:`, error);
+      logger.error(`Error fetching UserBid ID ${bidId}:`, error);
       throw error;
     }
   }

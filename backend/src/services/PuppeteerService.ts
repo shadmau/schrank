@@ -105,7 +105,7 @@ export class PuppeteerService {
 
            // Set retries to 6 if we use proxy
            if (options.useProxy) {
-            retries = 6;
+            retries = 10;
           }
 
           if (options.setCookie && options.cookies && this.page) {
@@ -159,6 +159,18 @@ export class PuppeteerService {
         };
         request.continue({ method, postData: body, headers: postHeaders });
       });
+    } else if (method === 'GET'){
+      
+      await this.page.setRequestInterception(true);
+      this.page.once('request', request => {
+        const getHeaders = {
+          ...request.headers(),
+          ...headers,
+          'Content-Type': 'application/json'
+        };
+        request.continue({ method, headers: getHeaders });
+      });
+
     }
 
     const response = await this.page.goto(url, {

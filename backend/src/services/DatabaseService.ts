@@ -1,7 +1,8 @@
 import { Repository } from "typeorm";
 import { Sale, NFT, Listing, Collection, CollectionMetrics, CurrentBid, BidHistory, UserBid } from '../models/entities.js';
 import { dataSource } from "../config/database.js";
-import { Between, MoreThanOrEqual, LessThanOrEqual } from 'typeorm';
+import { Between, LessThanOrEqual } from 'typeorm';
+import logger from "../utils/logger.js";
 
 export class DatabaseService {
   private static instance: DatabaseService;
@@ -36,9 +37,9 @@ export class DatabaseService {
     try {
       try {
         await dataSource.initialize();
-        console.log("Data Source has been initialized!");
+        logger.info("Data Source has been initialized!");
       } catch (err) {
-        console.error("Error during Data Source initialization:", err);
+        logger.error("Error during Data Source initialization:", err);
       }
       this.collectionRepo = dataSource.getRepository(Collection);
       this.nftRepo = dataSource.getRepository(NFT);
@@ -50,9 +51,9 @@ export class DatabaseService {
       this.userBidRepo = dataSource.getRepository(UserBid);
 
       this.initialized = true;
-      console.log("Database connection established");
+      logger.info("Database connection established");
     } catch (error) {
-      console.error("Error connecting to database:", error);
+      logger.error("Error connecting to database:", error);
       throw error;
     }
   }
@@ -88,9 +89,9 @@ export class DatabaseService {
     try {
       await this.collectionRepo.update(collectionId, { current_floor_price: floorPrice });
 
-      console.log(`Updated floor price for collection ${collectionId} to ${floorPrice}`);
+      logger.info(`Updated floor price for collection ${collectionId} to ${floorPrice}`);
     } catch (error) {
-      console.error(`Error updating floor price for collection ${collectionId}:`, error);
+      logger.error(`Error updating floor price for collection ${collectionId}:`, error);
       throw error;
     }
   }
@@ -102,9 +103,9 @@ export class DatabaseService {
       }
 
       await this.metricsRepo.save(metrics);
-      console.log(`Stored floor price metrics for collection ${metrics.collection.collection_id}`);
+      logger.info(`Stored floor price metrics for collection ${metrics.collection.collection_id}`);
     } catch (error) {
-      console.error('Error storing floor price metrics:', error);
+      logger.error('Error storing floor price metrics:', error);
       throw error;
     }
   }
@@ -126,9 +127,9 @@ export class DatabaseService {
         .setParameters(subQuery.getParameters())
         .execute();
 
-      console.log(`Updated non-floor listings for collection ${collectionId}`);
+      logger.info(`Updated non-floor listings for collection ${collectionId}`);
     } catch (error) {
-      console.error(`Error updating non-floor listings for collection ${collectionId}:`, error);
+      logger.error(`Error updating non-floor listings for collection ${collectionId}:`, error);
       throw error;
     }
   }
@@ -192,7 +193,7 @@ export class DatabaseService {
         await this.listingRepo.save(newListing);
       }
     } catch (error) {
-      console.error('Error upserting listing:', error);
+      logger.error('Error upserting listing:', error);
       throw error;
     }
   }
@@ -225,10 +226,10 @@ export class DatabaseService {
     try {
       const newSale = this.saleRepo.create(saleData);
       const savedSale = await this.saleRepo.save(newSale);
-      console.log(`Created new sale record with ID ${savedSale.sale_id}`);
+      logger.info(`Created new sale record with ID ${savedSale.sale_id}`);
       return savedSale;
     } catch (error) {
-      console.error('Error creating sale record:', error);
+      logger.error('Error creating sale record:', error);
       throw error;
     }
   }
@@ -301,7 +302,7 @@ export class DatabaseService {
     const askTotalPrice = askSales.reduce((sum, sale) => {
       const price = parseFloat(sale.price.toString());
       if (isNaN(price)) {
-        console.error('Invalid price:', sale.price);
+        logger.error('Invalid price:', sale.price);
         return sum;
       }
       return sum + price;
@@ -310,7 +311,7 @@ export class DatabaseService {
     const bidTotalPrice = bidSales.reduce((sum, sale) => {
       const price = parseFloat(sale.price.toString());
       if (isNaN(price)) {
-        console.error('Invalid price:', sale.price);
+        logger.error('Invalid price:', sale.price);
         return sum;
       }
       return sum + price;
@@ -643,7 +644,7 @@ export class DatabaseService {
 
       return collection.current_floor_price || 0;
     } catch (error) {
-      console.error(`Error fetching floor price for collection ${collectionId}:`, error);
+      logger.error(`Error fetching floor price for collection ${collectionId}:`, error);
       throw error;
     }
   }
@@ -656,10 +657,10 @@ export class DatabaseService {
   async saveUserBid(userBid: Partial<UserBid>): Promise<UserBid> { // Using any for flexibility
     try {
       const savedBid = await this.userBidRepo.save(userBid);
-      console.log(`Saved UserBid with ID ${savedBid.id}`);
+      logger.info(`Saved UserBid with ID ${savedBid.id}`);
       return savedBid;
     } catch (error) {
-      console.error("Error saving UserBid:", error);
+      logger.error("Error saving UserBid:", error);
       throw error;
     }
   }
@@ -675,7 +676,7 @@ export class DatabaseService {
         relations: ["collection"],
       });
     } catch (error) {
-      console.error("Error fetching active UserBids:", error);
+      logger.error("Error fetching active UserBids:", error);
       throw error;
     }
   }
@@ -692,9 +693,9 @@ export class DatabaseService {
         updateData.canceledAt = new Date();
       }
       await this.userBidRepo.update(bidId, updateData);
-      console.log(`Updated UserBid ID ${bidId} to status ${status}`);
+      logger.info(`Updated UserBid ID ${bidId} to status ${status}`);
     } catch (error) {
-      console.error(`Error updating UserBid ID ${bidId}:`, error);
+      logger.error(`Error updating UserBid ID ${bidId}:`, error);
       throw error;
     }
   }
@@ -709,7 +710,7 @@ export class DatabaseService {
           const userBid = await this.userBidRepo.findOne({ where: { id: bidId }, relations: ["collection"] });
           return userBid || null; 
       } catch (error) {
-          console.error(`Error retrieving UserBid ID ${bidId}:`, error);
+          logger.error(`Error retrieving UserBid ID ${bidId}:`, error);
           throw error;
       }
   }

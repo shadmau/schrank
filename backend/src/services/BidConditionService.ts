@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 import { UserBid } from '../models/UserBid.js';
 import { DatabaseService } from './DatabaseService.js';
 import { BidManagementService } from './BidManagementService.js';
+import logger from '../utils/logger.js';
 
 
 class BidConditionService {
@@ -30,7 +31,7 @@ class BidConditionService {
 
                 // Check if the current floor price meets or exceeds the bid's minimum floor price
                 if (currentFloorPrice < minimumFloorPrice) {
-                    console.log(`Cancelling bid ${bid.id} for collection ${bid.collection.collection_id} with current floor price ${ethers.formatEther(currentFloorPrice)} ETH and minimum floor price ${ethers.formatEther(minimumFloorPrice)} ETH`);
+                    logger.info(`Cancelling bid ${bid.id} for collection ${bid.collection.collection_id} with current floor price ${ethers.formatEther(currentFloorPrice)} ETH and minimum floor price ${ethers.formatEther(minimumFloorPrice)} ETH`);
                     await this.bidService.cancelBid(bid.id);
                     // Logging the cancellation
                     // console.info(`Bid ID ${bid.id} canceled successfully. Collection: ${bid.collection.collection_id}, Bid Price: ${ethers.formatEther(bid.minFloorPrice)} ETH`);
@@ -43,12 +44,12 @@ class BidConditionService {
                 for (const bid of activeBids) {
                     const currentFloorPrice = ethers.parseUnits((await this.dbService.getCurrentFloorPrice(bid.collection.collection_id)).toString());
                     const minimumFloorPrice = ethers.formatEther(bid.minFloorPrice);
-                    console.info(`Checked bids at ${new Date(currentTime).toISOString()}. Collection: ${bid.collection.collection_id}, Current Floor Price: ${ethers.formatEther(currentFloorPrice)} ETH, Minimum Floor Price: ${minimumFloorPrice} ETH`);
+                    logger.debug(`Checked bids at ${new Date(currentTime).toISOString()}. Collection: ${bid.collection.collection_id}, Current Floor Price: ${ethers.formatEther(currentFloorPrice)} ETH, Minimum Floor Price: ${minimumFloorPrice} ETH`);
                 }
                 lastLogTime = currentTime; 
             }
         } catch (error: any) {
-            console.error(`BidConditionService Error: ${error.message}`);
+            logger.error(`BidConditionService Error: ${error.message}`);
         }
     }
 }
